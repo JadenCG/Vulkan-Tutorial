@@ -1,8 +1,9 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include <stdexcpt.h>
+#include <stdexcept>
 #include <vector>
-#include <string.h>
+#include <string>
+#include <optional> //Used for findQueueFamilies()
 
 //Stealing stuff from https://vulkan-tutorial.com/en/Drawing_a_triangle/Setup/Base_code for now
 class TriangleClass {
@@ -19,9 +20,18 @@ public:
 private:
     GLFWwindow* window = nullptr;
     VkInstance instance;
+    VkPhysicalDevice graphicsDevice = VK_NULL_HANDLE; //graphics card we'll be using
 
     const std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"
+    };
+
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphicsFamily;
+
+        bool isComplete() {
+            return graphicsFamily.has_value();
+        }
     };
 
 #ifdef NDEBUG
@@ -39,9 +49,68 @@ private:
 
     void initVulkan() {
         createVulkanInstance();
+        //setupDebugMessenger(); //Skipping for now
+        pickPhysicalDevice();
+    }
+
+    void pickPhysicalDevice() {
+        //Initial check: if there are no graphics cards we can use, throw an exception
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+        if(deviceCount == 0)
+            throw std::runtime_error("failed to find GPUs with Vulkan support!");
+
+        //Check to see which devices support Vulkan
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+        for (const auto& device : devices) {
+            if (isDeviceSuitable(device)) {
+                graphicsDevice = device;
+                break;
+            }
+        }
+        //Throw an exception if graphicsDevice never updated
+        if (graphicsDevice == VK_NULL_HANDLE) {
+            throw std::runtime_error("failed to find a suitable GPU!");
+        }
+    }
+
+    //Helper for pickPhysicalDevice()
+    bool isDeviceSuitable(VkPhysicalDevice device) {
+        QueueFamilyIndices indices = findQueueFamilies(device);
+        return indices.isComplete();
+    }
+
+    //Helper for pickPhysicalDevice()(?)
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+        // Logic to find graphics queue family
+        QueueFamilyIndices indices;
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+        //Loop through existing queue families to find relevant features
+        //(Currently only looking for the graphics bit queue)
+        int currentFamily = 0;
+        for (const auto& queueFamily : queueFamilies) {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indices.graphicsFamily = currentFamily;
+            }
+            currentFamily++;
+
+            //if (indices.isComplete())
+            //    break;
+        }
+
+        return indices;
     }
 
     void createVulkanInstance() {
+        //Validation layer checks
+        if(enableValidationLayers && !checkValidationLayerSupport())
+            throw std::runtime_error("validation layers requested, but not available!");
+
         //App / Window struct info
         VkApplicationInfo appInfo{};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -62,6 +131,12 @@ private:
         createInfo.enabledExtensionCount = glfwExtensionCount;
         createInfo.ppEnabledExtensionNames = glfwExtensions;
         createInfo.enabledLayerCount = 0;
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        }
+        else
+            createInfo.enabledLayerCount = 0;
 
         //Creating the Vulkan instance (no custom allocator)
         if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {

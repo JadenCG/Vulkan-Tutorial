@@ -12,6 +12,6 @@ add_subdirectory(glfw)
 #GLM (version 1.0.3 by default)
 add_subdirectory(glm)
 
-add_executable(${PROJECT_NAME} main.cpp)
+add_executable(${PROJECT_NAME} src/triangle/main.cpp)
 
 target_link_libraries(${PROJECT_NAME} glfw Vulkan::Vulkan glm::glm)
