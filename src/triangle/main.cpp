@@ -2,7 +2,7 @@
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <vector>
-#include <string>
+#include <string.h>
 #include <optional> //Used for findQueueFamilies()
 
 //Stealing stuff from https://vulkan-tutorial.com/en/Drawing_a_triangle/Setup/Base_code for now
@@ -21,6 +21,8 @@ private:
     GLFWwindow* window = nullptr;
     VkInstance instance;
     VkPhysicalDevice graphicsDevice = VK_NULL_HANDLE; //graphics card we'll be using
+    VkDevice device;
+    VkQueue graphicsQueue;
 
     const std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"
@@ -51,8 +53,10 @@ private:
         createVulkanInstance();
         //setupDebugMessenger(); //Skipping for now
         pickPhysicalDevice();
+        createLogicalDevice();
     }
 
+    //Picks the graphics card to use
     void pickPhysicalDevice() {
         //Initial check: if there are no graphics cards we can use, throw an exception
         uint32_t deviceCount = 0;
@@ -73,6 +77,44 @@ private:
         if (graphicsDevice == VK_NULL_HANDLE) {
             throw std::runtime_error("failed to find a suitable GPU!");
         }
+    }
+
+    //Determines what features the graphics card should use
+    void createLogicalDevice() {
+        QueueFamilyIndices indices = findQueueFamilies(graphicsDevice);
+
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
+        queueCreateInfo.queueCount = 1;
+
+        float queuePriority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        VkPhysicalDeviceFeatures deviceFeatures{};
+
+        VkDeviceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+
+        createInfo.pQueueCreateInfos = &queueCreateInfo;
+        createInfo.queueCreateInfoCount = 1;
+
+        createInfo.pEnabledFeatures = &deviceFeatures;
+
+        createInfo.enabledExtensionCount = 0;
+
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        } else {
+            createInfo.enabledLayerCount = 0;
+        }
+
+        if (vkCreateDevice(graphicsDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create logical device!");
+        }
+
+        vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
     }
 
     //Helper for pickPhysicalDevice()
