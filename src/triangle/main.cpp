@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <limits>
 #include <algorithm>
+//TODO: left off Presentation > Swap Chain > Creating the swap chain (need to add imageCount var + logic)
 
 //Stealing stuff from https://vulkan-tutorial.com/en/Drawing_a_triangle/Setup/Base_code for now
 class TriangleClass {
@@ -26,6 +27,8 @@ public:
         cleanup();
     }
 private:
+    #define SWAP_CHAIN_IMAGE_OVERHEAD 1 //Used by createSwapChain() to ensure we don't go below the minimum number of images
+
     GLFWwindow* window = nullptr;
     VkInstance instance;
     VkPhysicalDevice graphicsDevice = VK_NULL_HANDLE; //graphics card we'll be using
@@ -33,6 +36,10 @@ private:
     VkQueue graphicsQueue;
     VkSurfaceKHR surface; //Window surface
     VkQueue presentQueue;
+    VkSwapchainKHR swapChain;
+    std::vector<VkImage> swapChainImages;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
 
     const std::vector<const char*> validationLayers = {
         "VK_LAYER_KHRONOS_validation"
@@ -81,10 +88,54 @@ private:
 
     void createSwapChain() {
         SwapChainSupportDetails swapChainSupport = querySwapChainSupport(graphicsDevice);
+        uint32_t imageCount = swapChainSupport.capabilities.minImageCount + SWAP_CHAIN_IMAGE_OVERHEAD;
+
+        if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
+            imageCount = swapChainSupport.capabilities.maxImageCount;
+        }
 
         VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
         VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
         VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities);
+
+        VkSwapchainCreateInfoKHR createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        createInfo.surface = surface;
+        createInfo.minImageCount = imageCount;
+        createInfo.imageFormat = surfaceFormat.format;
+        createInfo.imageColorSpace = surfaceFormat.colorSpace;
+        createInfo.imageExtent = extent;
+        createInfo.imageArrayLayers = 1;
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; //If post-processing is involved, use VK_IMAGE_USAGE_TRANSFER_DST_BIT
+
+        QueueFamilyIndices indices = findQueueFamilies(graphicsDevice);
+        uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
+
+        if (indices.graphicsFamily != indices.presentFamily) {
+            createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+            createInfo.queueFamilyIndexCount = 2;
+            createInfo.pQueueFamilyIndices = queueFamilyIndices;
+        } else {
+            createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            createInfo.queueFamilyIndexCount = 0;
+            createInfo.pQueueFamilyIndices = nullptr;
+        }
+
+        createInfo.preTransform = swapChainSupport.capabilities.currentTransform; //Transforms an image before it's posted if desired
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR; //Window alpha, not graphic alpha (ignore)
+        createInfo.presentMode = presentMode;
+        createInfo.clipped = VK_TRUE; //Don't bother calculating colors for hidden pixels
+        createInfo.oldSwapchain = VK_NULL_HANDLE; //Update in the future when the window invalidates itself
+
+        if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &swapChain) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create swap chain!");
+        }
+
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, nullptr);
+        swapChainImages.resize(imageCount);
+        vkGetSwapchainImagesKHR(device, swapChain, &imageCount, swapChainImages.data());
+        swapChainImageFormat = surfaceFormat.format;
+        swapChainExtent = extent;
     }
 
     //Picks the graphics card to use
@@ -354,6 +405,7 @@ private:
     }
 
     void cleanup() {
+        vkDestroySwapchainKHR(device, swapChain, nullptr);
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr); //No allocator
 
